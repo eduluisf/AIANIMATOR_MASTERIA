@@ -140,8 +140,3 @@ ai_animator/
 - torch
 - numpy
 
----
-
-## Licencia
-
-GPL-3.0
