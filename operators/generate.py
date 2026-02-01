@@ -5,21 +5,23 @@ Operador principal que orquesta la generación de animaciones
 
 import bpy
 from ..core import (
-    PromptParser, 
-    AnimationMatcher, 
-    MotionBlender, 
-    AutoLoop, 
+    PromptParser,
+    AnimationMatcher,
+    MotionBlender,
+    AutoLoop,
     get_retargeter,
     get_sequence_detector,
     get_sequence_builder,
     get_in_place_processor,
     process_prompt_for_sequence
 )
+from ..core.transform import get_transformer
 
 
 # Instancias globales (se inicializan una vez)
 _parser = None
 _matcher = None
+_transformer_initialized = False
 
 
 def get_parser():
@@ -41,6 +43,20 @@ def refresh_matcher():
     global _matcher
     _matcher = AnimationMatcher()
     return _matcher
+
+
+def ensure_transformer_initialized():
+    """Inicializa el transformer semántico con el modelo del matcher."""
+    global _transformer_initialized
+    if _transformer_initialized:
+        return
+    matcher = get_matcher()
+    if matcher.semantic_available and matcher.model:
+        transformer = get_transformer()
+        transformer.initialize(matcher.model)
+        parser = get_parser()
+        parser.enable_semantic_detection(transformer)
+        _transformer_initialized = True
 
 
 class AI_OT_GenerateAnimation(bpy.types.Operator):
@@ -78,6 +94,7 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
         
         parser = get_parser()
         matcher = get_matcher()
+        ensure_transformer_initialized()
         
         # =====================================================================
         # PASO 2: Procesar según tipo (secuencia o blend)
@@ -169,7 +186,16 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
             if parsed['speed'] != 1.0:
                 MotionBlender.apply_speed_modifier(action, parsed['speed'])
             if parsed['intensity'] != 1.0:
-                MotionBlender.apply_intensity_modifier(action, parsed['intensity'])
+                if parsed.get('transform_config'):
+                    transformer = get_transformer()
+                    bone_filter = transformer.bone_resolver.get_bones_for_groups(
+                        parsed['transform_config'].target_bone_groups
+                    )
+                    MotionBlender.apply_intensity_modifier_selective(
+                        action, parsed['intensity'], bone_filter=bone_filter
+                    )
+                else:
+                    MotionBlender.apply_intensity_modifier(action, parsed['intensity'])
             
             sequence_actions.append(action)
             print(f"  ✓ Added to sequence: {action.name}")
@@ -238,6 +264,10 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
         print(f"    Speed: {parsed['speed']}x")
         print(f"    Intensity: {parsed['intensity']}x")
         print(f"    Compound: {parsed['is_compound']}")
+        if parsed.get('semantic_detected'):
+            groups = [bg.value for bg in parsed.get('target_bone_groups', [])]
+            print(f"    Semantic: YES")
+            print(f"    Target bones: {groups}")
     
     def _import_animations(self, anims_to_blend, target_armature):
         """Importa las animaciones necesarias y devuelve sus actions con retargeting"""
@@ -350,10 +380,19 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
             print(f"\n--- Applying speed: {parsed['speed']}x ---")
             MotionBlender.apply_speed_modifier(final_action, parsed['speed'])
         
-        # 3. Aplicar modificador de intensidad
+        # 3. Aplicar modificador de intensidad (selectivo por huesos si hay config semántica)
         if parsed['intensity'] != 1.0:
             print(f"\n--- Applying intensity: {parsed['intensity']}x ---")
-            MotionBlender.apply_intensity_modifier(final_action, parsed['intensity'])
+            if parsed.get('transform_config'):
+                transformer = get_transformer()
+                bone_filter = transformer.bone_resolver.get_bones_for_groups(
+                    parsed['transform_config'].target_bone_groups
+                )
+                MotionBlender.apply_intensity_modifier_selective(
+                    final_action, parsed['intensity'], bone_filter=bone_filter
+                )
+            else:
+                MotionBlender.apply_intensity_modifier(final_action, parsed['intensity'])
         
         # 4. Auto-loop si está habilitado
         if context.scene.ai_animator_auto_loop:

@@ -216,6 +216,67 @@ class MotionBlender:
         logger.log(f"F-curves modified: {curves_modified}", "SUCCESS")
     
     @staticmethod
+    def apply_intensity_modifier_selective(action, intensity_factor: float,
+                                           bone_filter: list = None):
+        """
+        Aplica intensidad solo a huesos específicos con matching case-insensitive.
+        Diseñado para trabajar con grupos de huesos del módulo transform.
+
+        Args:
+            action: bpy.types.Action
+            intensity_factor: Factor de escala de amplitud
+            bone_filter: Lista de nombres de huesos (case-insensitive), o None para todos
+        """
+        if not action or intensity_factor == 1.0:
+            return
+
+        logger.section("Selective Intensity Modifier")
+        logger.log(f"Factor: {intensity_factor:.2f}x")
+
+        if bone_filter:
+            bone_filter_lower = [b.lower() for b in bone_filter]
+            logger.log(f"Targeting {len(bone_filter)} specific bones")
+        else:
+            bone_filter_lower = None
+            logger.log("Targeting ALL bones")
+
+        curves_modified = 0
+
+        for fc in action.fcurves:
+            is_location = 'location' in fc.data_path
+            is_rotation = 'rotation' in fc.data_path
+
+            if not (is_location or is_rotation):
+                continue
+
+            # Filtro de huesos case-insensitive
+            if bone_filter_lower is not None:
+                data_path_lower = fc.data_path.lower()
+                bone_match = any(bone in data_path_lower for bone in bone_filter_lower)
+                if not bone_match:
+                    continue
+
+            values = [kp.co[1] for kp in fc.keyframe_points]
+            if not values:
+                continue
+
+            base_value = sum(values) / len(values)
+
+            for kp in fc.keyframe_points:
+                deviation = kp.co[1] - base_value
+                kp.co[1] = base_value + (deviation * intensity_factor)
+
+                handle_left_dev = kp.handle_left[1] - base_value
+                handle_right_dev = kp.handle_right[1] - base_value
+                kp.handle_left[1] = base_value + (handle_left_dev * intensity_factor)
+                kp.handle_right[1] = base_value + (handle_right_dev * intensity_factor)
+
+            curves_modified += 1
+
+        bone_info = f"{len(bone_filter)} bones" if bone_filter else "ALL bones"
+        logger.log(f"F-curves modified: {curves_modified} ({bone_info})", "SUCCESS")
+
+    @staticmethod
     def blend_multiple(actions_weights: list, name: str = "MultiBlend") -> bpy.types.Action:
         """
         Combina múltiples acciones con sus respectivos pesos.
