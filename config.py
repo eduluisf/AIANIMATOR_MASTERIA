@@ -94,3 +94,8 @@ ACTIONS = [
     'pelear', 'atacar', 'patear', 'golpear', 'agacharse', 'rodar',
     'saludar', 'aplaudir', 'reír', 'llorar', 'hablar',
 ]
+
+# Semantic Transform Configuration
+SEMANTIC_MODIFIER_THRESHOLD = 0.5
+ACTION_BONE_MATCH_THRESHOLD = 0.6
+USE_SEMANTIC_MODIFIERS = True
