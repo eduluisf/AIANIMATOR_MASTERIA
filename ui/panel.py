@@ -225,19 +225,25 @@ class AI_OT_GenerateFromMixer(bpy.types.Operator):
         
         actions = []
         for item in to_import:
+            print(f"\n  📦 Importing: {item.name} (score: {item.score:.0%})")
+            print(f"      File: {item.path}")
             before = set(bpy.data.objects.keys())
             try:
                 bpy.ops.import_scene.fbx(filepath=item.path)
-            except:
+            except Exception as e:
+                print(f"      ✗ Import failed: {e}")
                 continue
             after = set(bpy.data.objects.keys())
-            
+
             for n in (after - before):
                 o = bpy.data.objects.get(n)
                 if o and o.type == 'ARMATURE' and o.animation_data and o.animation_data.action:
-                    actions.append(o.animation_data.action.copy())
+                    action_copy = o.animation_data.action.copy()
+                    actions.append(action_copy)
+                    frames = action_copy.frame_range[1] - action_copy.frame_range[0]
+                    print(f"      ✓ Loaded: {action_copy.name} ({frames:.0f} frames)")
                     break
-            
+
             for n in (after - before):
                 if n in bpy.data.objects:
                     bpy.data.objects.remove(bpy.data.objects[n], do_unlink=True)
@@ -246,9 +252,20 @@ class AI_OT_GenerateFromMixer(bpy.types.Operator):
             self.report({'ERROR'}, "No animations")
             return {'CANCELLED'}
         
+        print(f"\n{'='*50}")
+        print(f" BUILDING FINAL ANIMATION")
+        print(f"{'='*50}")
         if len(actions) == 1:
+            print(f"  Using single animation: {actions[0].name}")
             final = actions[0]
         else:
+            print(f"  Chaining {len(actions)} animations:")
+            for i, a in enumerate(actions):
+                frames = a.frame_range[1] - a.frame_range[0]
+                print(f"    {i+1}. {a.name} ({frames:.0f} frames)")
+                if i < len(transition_configs):
+                    tc = transition_configs[i]
+                    print(f"       ↓ transition: {tc['style']} ({tc['frames']} frames)")
             builder = SequenceBuilder()
             # Intentar con transiciones custom
             if hasattr(builder, 'build_sequence_with_transitions'):
@@ -264,14 +281,22 @@ class AI_OT_GenerateFromMixer(bpy.types.Operator):
             final = processor.remove_root_motion(final, axes='XY')
         
         if context.scene.ai_animator_auto_loop:
-            AutoLoop.make_loopable(final, context.scene.ai_animator_loop_frames)
+            print(f"\n  🔄 Applying auto-loop to: {final.name}")
+            AutoLoop.make_loopable(final)
         
         if context.scene.ai_animator_mode == 'EDIT' and obj.animation_data and obj.animation_data.action:
             bpy.data.actions.remove(obj.animation_data.action)
         
         obj.animation_data_create()
         obj.animation_data.action = final
-        self.report({'INFO'}, f"Generated: {final.name}")
+
+        # Mostrar qué animaciones se usaron
+        anim_names = [item.name for item in to_import]
+        if len(anim_names) == 1:
+            self.report({'INFO'}, f"Generated: {anim_names[0]}")
+        else:
+            chain = " → ".join(anim_names)
+            self.report({'INFO'}, f"Generated sequence: {chain}")
         return {'FINISHED'}
 
 
@@ -356,8 +381,6 @@ class AI_PT_AnimatorPanel(bpy.types.Panel):
         layout.separator()
         box = layout.box()
         box.prop(context.scene, "ai_animator_auto_loop")
-        if context.scene.ai_animator_auto_loop:
-            box.prop(context.scene, "ai_animator_loop_frames")
         
         layout.separator()
         layout.operator("ai_animator.generate", text="Quick Generate", icon='AUTO')

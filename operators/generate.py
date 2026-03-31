@@ -134,10 +134,9 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
         active_obj.animation_data_create()
         active_obj.animation_data.action = final_action
         
-        # Mensaje de éxito
-        mode = "sequence" if is_sequence else "blend"
+        # Mensaje de éxito con nombres de animaciones
         in_place_info = " [in-place]" if is_in_place else ""
-        self.report({'INFO'}, f"Generated: {final_action.name} ({mode}){in_place_info}")
+        self.report({'INFO'}, f"Generated: {final_action.name}{in_place_info}")
         
         return {'FINISHED'}
     
@@ -248,11 +247,27 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
         if not imported_actions:
             return None
         
+        # Log resumen de lo que se va a procesar
+        print(f"\n{'='*50}")
+        print(f" PROCESSING SUMMARY")
+        print(f"{'='*50}")
+        if len(imported_actions) > 1:
+            print(f"  Mixing {len(imported_actions)} animations:")
+            for i, (act, w) in enumerate(imported_actions):
+                print(f"    {i+1}. {act.name} (weight: {w:.0%})")
+        else:
+            print(f"  Single animation: {imported_actions[0][0].name}")
+        if parsed['speed'] != 1.0:
+            print(f"  Speed modifier: {parsed['speed']}x")
+        if parsed['intensity'] != 1.0:
+            print(f"  Intensity modifier: {parsed['intensity']}x")
+        print(f"  Auto-loop: {'ON' if context.scene.ai_animator_auto_loop else 'OFF'}")
+
         # Procesar: blend, speed, intensity, loop
         final_action = self._apply_processing(
             imported_actions, parsed, context, prompt
         )
-        
+
         return final_action
     
     def _log_parsed(self, parsed):
@@ -279,9 +294,10 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
             confidence = anim_result['confidence']
             method = anim_result.get('method', 'unknown')
             
-            print(f"\n  📦 Importing: {anim['filename']}")
-            print(f"      Confidence: {confidence:.0%} ({method})")
-            print(f"      Weight: {weight:.0%}")
+            print(f"\n  📦 Importing: {anim['name']} ({anim['filename']})")
+            print(f"      Match confidence: {confidence:.0%} (method: {method})")
+            print(f"      Blend weight: {weight:.0%}")
+            print(f"      File: {anim['path']}")
             
             try:
                 # Guardar objetos antes de importar

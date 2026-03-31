@@ -154,125 +154,96 @@ class AutoLoop:
         return best_frame, best_score
     
     @staticmethod
-    def make_loopable(action, blend_frames: int = None, 
+    def make_loopable(action, blend_frames: int = None,
                       auto_find_loop_point: bool = True,
                       preserve_root_motion: bool = False) -> int:
         """
-        Hace una acción loopable usando cross-fade simétrico.
-        
+        Hace una acción loopable usando cross-fade sobre toda la animación.
+
         Técnica:
-        - Toma los primeros N frames (zona A) y últimos N frames (zona B)
-        - En zona A: blend gradual donde frame_i = inicio_i * (1-t) + final_i * t
-        - En zona B: blend inverso donde frame_i = final_i * (1-t) + inicio_i * t
-        - Resultado: transición perfecta sin saltos
-        
+        - Usa toda la duración de la animación como zona de blend
+        - Cada frame se interpola gradualmente entre su valor original
+          y el valor correspondiente desde el extremo opuesto
+        - Resultado: loop suave sin saltos usando la animación completa
+
         Args:
             action: Acción a modificar (se modifica in-place)
-            blend_frames: Número de frames para la zona de blend (cada lado)
+            blend_frames: No usado, se mantiene por compatibilidad
             auto_find_loop_point: Si buscar automáticamente el mejor punto
             preserve_root_motion: Si preservar el desplazamiento del root
-            
+
         Returns:
             Frame final del loop
         """
         if not action:
             return 0
-        
-        if blend_frames is None:
-            blend_frames = DEFAULT_LOOP_BLEND_FRAMES
-        
+
         frame_start = int(action.frame_range[0])
         frame_end = int(action.frame_range[1])
         duration = frame_end - frame_start
-        
-        # Asegurar que blend_frames no sea mayor que la mitad de la animación
-        max_blend = duration // 3
-        blend_frames = min(blend_frames, max_blend)
-        
-        if blend_frames < 2:
+
+        if duration < 4:
             print(f"  ⚠ Animation too short for looping ({duration} frames)")
             return frame_end
-        
+
         print(f"\n{'='*50}")
         print(f" AUTO-LOOP: {action.name}")
         print(f"{'='*50}")
         print(f"  Duration: {duration} frames")
-        print(f"  Blend zone: {blend_frames} frames (each side)")
-        
+        print(f"  Blend zone: FULL animation")
+
         # Encontrar punto óptimo de loop
         if auto_find_loop_point:
             loop_frame, score = AutoLoop.find_best_loop_point(action)
             print(f"  Best loop point: frame {loop_frame} (score: {score:.1%})")
-            
+
             # Ajustar frame_end al mejor punto
             if loop_frame < frame_end:
                 frame_end = loop_frame
                 duration = frame_end - frame_start
-                blend_frames = min(blend_frames, duration // 3)
-        
+
         # =====================================================================
-        # CROSS-FADE SIMÉTRICO
+        # CROSS-FADE SOBRE TODA LA ANIMACIÓN
         # =====================================================================
-        print(f"\n  Applying symmetric cross-fade...")
-        
+        print(f"\n  Applying full-animation cross-fade...")
+
         for fc in action.fcurves:
             # Detectar si es root location
             is_root_location = False
             if 'location' in fc.data_path:
-                is_root_location = any(kw.lower() in fc.data_path.lower() 
+                is_root_location = any(kw.lower() in fc.data_path.lower()
                                        for kw in AutoLoop.ROOT_BONE_KEYWORDS)
-            
+
             # Si es root location y queremos preservar motion, saltar
             if is_root_location and preserve_root_motion:
                 continue
-            
-            # Guardar valores originales en los extremos
-            values_start = []  # Valores de los primeros blend_frames
-            values_end = []    # Valores de los últimos blend_frames
-            
-            for i in range(blend_frames):
-                val_start = fc.evaluate(frame_start + i)
-                val_end = fc.evaluate(frame_end - blend_frames + i)
-                values_start.append(val_start)
-                values_end.append(val_end)
-            
-            # Aplicar cross-fade en zona inicial (primeros blend_frames)
-            for i in range(blend_frames):
-                frame = frame_start + i
-                t = i / max(1, blend_frames - 1)
+
+            # Guardar valores originales de toda la animación
+            original_values = []
+            for i in range(duration + 1):
+                original_values.append(fc.evaluate(frame_start + i))
+
+            # Aplicar cross-fade gradual sobre toda la animación
+            # En la primera mitad: el valor original domina
+            # En la segunda mitad: transiciona hacia el valor inicial
+            for i in range(duration + 1):
+                t = i / max(1, duration)
                 t = AutoLoop.smoothstep(t)
-                
-                # Blend: inicio puro → mezcla con final
-                # Al principio (t=0): 100% inicio
-                # Al final de zona (t=1): más influencia del final
-                blend_factor = t * 0.5  # Máximo 50% de influencia del final
-                
-                original = values_start[i]
-                from_end = values_end[i]
-                
-                blended = original * (1.0 - blend_factor) + from_end * blend_factor
-                fc.keyframe_points.insert(frame, blended)
-            
-            # Aplicar cross-fade en zona final (últimos blend_frames)
-            for i in range(blend_frames):
-                frame = frame_end - blend_frames + i
-                t = i / max(1, blend_frames - 1)
-                t = AutoLoop.smoothstep(t)
-                
-                # Blend: animación normal → transición hacia inicio
-                # Al principio (t=0): 100% animación normal
-                # Al final (t=1): transición hacia valores de inicio
-                blend_factor = t * 0.5 + 0.5  # Va de 50% a 100%
-                
-                original = values_end[i]
-                from_start = values_start[i]
-                
-                # Invertir: queremos que el final se parezca al inicio
-                blended = original * (1.0 - blend_factor) + from_start * blend_factor
-                fc.keyframe_points.insert(frame, blended)
-            
+
+                # Blend entre valor original y valor espejado desde el inicio
+                original = original_values[i]
+                mirror_idx = duration - i
+                from_mirror = original_values[mirror_idx]
+                first_value = original_values[0]
+
+                # En la segunda mitad, mezclar hacia el primer frame
+                blend_factor = t  # 0 al inicio, 1 al final
+                blended = original * (1.0 - blend_factor) + first_value * blend_factor
+
+                fc.keyframe_points.insert(frame_start + i, blended)
+
             # Asegurar que el último frame sea igual al primero
-            first_value = fc.evaluate(frame_start)
+            first_value = original_values[0]
             fc.keyframe_points.insert(frame_end, first_value)
         
         # Suavizar todas las curvas

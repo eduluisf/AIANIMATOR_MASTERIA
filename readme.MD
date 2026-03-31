@@ -4,11 +4,14 @@ Add-on para Blender que genera animaciones 3D a partir de instrucciones en lengu
 
 ## Instalación
 
-### 1. Descargar e instalar el add-on
+### 1. Instalar el add-on
 
-- Descargar `ai_animator.zip` desde [Releases](https://github.com/eduluisf/Ai_animator/releases)
-- En Blender: `Edit` → `Preferences` → `Add-ons` → `Install...`
-- Seleccionar el `.zip` y activar "AI Animator"
+- Clonar o descargar este repositorio
+- Copiar la carpeta `ai_animator` en la carpeta de addons de Blender:
+  - **Mac:** `~/Library/Application Support/Blender/<version>/scripts/addons/`
+  - **Windows:** `%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\`
+  - **Linux:** `~/.config/blender/<version>/scripts/addons/`
+- En Blender: `Edit` → `Preferences` → `Add-ons` → Buscar "AI Animator" y activarlo
 
 ### 2. Configurar biblioteca de animaciones
 
@@ -71,11 +74,37 @@ También puedes ajustar manualmente en el Animation Mixer.
 
 ---
 
+## Mixing de animaciones
+
+Cuando el prompt combina una acción con una emoción, el sistema mezcla dos animaciones:
+
+```
+happy walk       → mezcla "walk" (70%) + "happy" (30%)
+sad idle         → mezcla "idle" (70%) + "sad" (30%)
+```
+
+Los modificadores de velocidad e intensidad se aplican sobre el resultado:
+
+```
+clap fast        → animación de clap a 1.5x velocidad
+jump slow        → animación de jump a 0.6x velocidad
+big wave         → wave con amplitud aumentada
+subtle dance     → dance con amplitud reducida
+```
+
+---
+
+## Auto-loop
+
+El auto-loop convierte cualquier animación en cíclica usando cross-fade sobre toda la duración de la animación. Se activa/desactiva desde el panel con el checkbox "Auto Loop".
+
+---
+
 ## Opciones
 
 | Opción | Descripción |
 |--------|-------------|
-| **Auto-loop** | Hace la animación cíclica (seam blending) |
+| **Auto-loop** | Hace la animación cíclica usando toda la animación |
 | **In-place** | Elimina desplazamiento del root |
 | **New/Edit** | Crear nueva Action o reemplazar existente |
 
@@ -92,6 +121,25 @@ También puedes ajustar manualmente en el Animation Mixer.
 
 ---
 
+## Logs y depuración
+
+Para ver los logs del addon en tiempo real, abrir Blender desde la terminal:
+
+```bash
+# Mac
+/Applications/Blender.app/Contents/MacOS/Blender
+
+# Windows
+"C:\Program Files\Blender Foundation\Blender <version>\blender.exe"
+
+# Linux
+blender
+```
+
+Los logs muestran qué animaciones se importan, mezclan y procesan en cada generación.
+
+---
+
 ## Estructura de archivos
 
 ```
@@ -100,10 +148,12 @@ ai_animator/
 ├── config.py
 ├── core/
 │   ├── matcher.py      # Búsqueda semántica
-│   ├── sequence.py     # Concatenación
-│   ├── loop.py         # Auto-loop
+│   ├── blender.py      # Motion blending (mixing de animaciones)
+│   ├── sequence.py     # Concatenación de secuencias
+│   ├── loop.py         # Auto-loop (full animation cross-fade)
 │   ├── retarget.py     # Mapeo de huesos
-│   └── blender.py      # Utilidades
+│   ├── parser.py       # Parser de prompts
+│   └── transform.py    # Transformaciones semánticas
 ├── operators/
 │   └── generate.py
 └── ui/
