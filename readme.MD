@@ -21,11 +21,23 @@ Add-on para Blender que genera animaciones 3D a partir de instrucciones en lengu
 
 ### 3. Instalar dependencias de IA (opcional)
 
-- Click en "Install AI Dependencies" 
+- Click en **Install AI Dependencies**
 - Esperar 1-4 minutos
 - Reiniciar Blender
 
 Sin las dependencias, el add-on funciona en modo básico (búsqueda por palabras clave).
+
+#### Detalles del instalador
+
+El botón ahora hace varias cosas para evitar romper Blender en Windows:
+
+- Detecta la versión de **numpy** que ya trae Blender y la pinea (`numpy==X.Y.Z`) para que pip no la actualice y rompa otros add-ons (auto_rig_pro, etc.).
+- Verifica que la carpeta `site-packages` de Blender sea escribible. Si no lo es (Blender en `Program Files`), aborta con un mensaje pidiéndote abrir Blender como Administrador.
+- Detecta si hay paquetes "fantasma" en `%APPDATA%\Python\PythonXY\site-packages` que vayan a tapar a los de Blender, y avisa.
+- Fuerza `--target` a la carpeta correcta y `PYTHONNOUSERSITE=1` para que pip no instale en `AppData`.
+- Verifica el import después de instalar y, si torch falla con `c10.dll`, te indica que falta el **Microsoft Visual C++ Redistributable**.
+
+**Si en Windows ves "Defaulting to user installation":** cerrá Blender, abrílo como Administrador y volvé a darle al botón.
 
 ---
 
@@ -33,9 +45,17 @@ Sin las dependencias, el add-on funciona en modo básico (búsqueda por palabras
 
 1. Seleccionar un armature (rig Mixamo o compatible)
 2. Escribir descripción en el campo de texto
-3. Click en **Search**
+3. Click en **Search** (lupa)
 4. Seleccionar animación de los resultados
 5. Click en **Generate**
+
+El botón final cambia de label según el tipo de prompt detectado:
+
+- **Generate** → animación única
+- **Generate Sequence** → secuencia (con `then`, `luego`, etc.)
+- **Generate Overlay** → overlay simultáneo (con `while`, `mientras`, etc.)
+
+También existe **Quick Generate** que hace todo el flujo automático sin pasar por el picker (elige el primer match de cada parte).
 
 ### Ejemplos de búsqueda
 
@@ -94,6 +114,58 @@ subtle dance     → dance con amplitud reducida
 
 ---
 
+## Overlay (acciones simultáneas)
+
+Para combinar dos animaciones que ocurren al mismo tiempo —brazos haciendo una cosa mientras las piernas hacen otra— usa los conectores de **simultaneidad**:
+
+```
+clap while walk          → camina + aplaude
+wave mientras correr     → corre + saluda con la mano
+shoot while sprint       → sprint + apuntar/disparar
+bow while idle           → idle + reverencia con torso
+```
+
+**Conectores soportados:** `while`, `mientras`, `al mismo tiempo que`, `a la vez que`, `y al mismo tiempo`, `at the same time as`.
+
+### Cómo funciona
+
+A diferencia del blend (promedio ponderado en todo el cuerpo), el overlay reemplaza solo las **fcurves de los huesos pertinentes** y deja el resto intactas. El sistema decide qué huesos toca el overlay a partir de `ACTION_BONE_MAPPING` (clap → ARMS, bow → SPINE, nod → HEAD, etc.).
+
+### Asignación inteligente del root
+
+Cuando una de las dos partes es **locomoción** (walk, run, jog, sprint, jump, etc.), automáticamente se vuelve la **base** —sin importar el orden del `while`— para que el root/hips siempre venga del lado que de verdad mueve al personaje.
+
+```
+clap while walk   ↔   walk while clap     # mismo resultado: camina y aplaude
+wave while run    ↔   run while wave      # mismo resultado: corre y saluda
+```
+
+Si BERT está activo, también detecta sinónimos:
+
+```
+clap while strolling     → strolling es la base
+wave mientras marchando  → marchando es la base
+```
+
+### UI
+
+Cuando detecta `while`/`mientras`, el panel muestra dos grupos:
+
+```
+► OVERLAY: CLAP
+  [✓] Hand Clap
+  [ ] Standing Clap
+  🔗 while
+► BASE: WALK
+  [✓] Walking Forward
+  [ ] Walk Cycle
+  [ Generate Overlay ]
+```
+
+Podés tildar manualmente qué animación querés de cada lado, igual que en el modo secuencia.
+
+---
+
 ## Auto-loop
 
 El auto-loop convierte cualquier animación en cíclica usando cross-fade sobre toda la duración de la animación. Se activa/desactiva desde el panel con el checkbox "Auto Loop".
@@ -147,17 +219,18 @@ ai_animator/
 ├── __init__.py
 ├── config.py
 ├── core/
-│   ├── matcher.py      # Búsqueda semántica
-│   ├── blender.py      # Motion blending (mixing de animaciones)
-│   ├── sequence.py     # Concatenación de secuencias
+│   ├── matcher.py      # Búsqueda semántica (sentence-BERT)
+│   ├── blender.py      # Motion blending + overlay por hueso
+│   ├── sequence.py     # Secuencias + detección de overlay (while/mientras)
 │   ├── loop.py         # Auto-loop (full animation cross-fade)
 │   ├── retarget.py     # Mapeo de huesos
 │   ├── parser.py       # Parser de prompts
-│   └── transform.py    # Transformaciones semánticas
+│   └── transform.py    # Modificadores semánticos + locomotion scoring
 ├── operators/
-│   └── generate.py
+│   ├── generate.py     # Quick Generate (auto)
+│   └── utils.py        # Install AI Dependencies (numpy-safe)
 └── ui/
-    └── panel.py
+    └── panel.py        # Panel + picker (Search → Generate / Sequence / Overlay)
 ```
 
 ---
@@ -175,6 +248,20 @@ ai_animator/
 
 **Transiciones con saltos**
 - Aumentar frames de transición o usar preset Smooth
+
+**Overlay con footskate (los pies patinan)**
+- Indicar bien la locomoción: `clap while walk` (no `clap while standing`).
+- Si BERT está activo, también detecta sinónimos como `strolling`, `jogging`, etc.
+
+**Windows: "Defaulting to user installation because normal site-packages is not writeable"**
+- Cerrar Blender → abrirlo como Administrador → Install AI Dependencies de nuevo.
+
+**Windows: "Error loading c10.dll" (torch no carga)**
+- Falta el Microsoft Visual C++ Redistributable. Instalarlo desde:
+  https://aka.ms/vs/17/release/vc_redist.x64.exe → reiniciar Windows.
+
+**Windows: numpy "multiarray" import failed**
+- Hay un numpy "fantasma" en `%APPDATA%\Python\PythonXY\site-packages` que tapa al de Blender. Borrar esa carpeta y reinstalar como Administrador.
 
 ---
 
