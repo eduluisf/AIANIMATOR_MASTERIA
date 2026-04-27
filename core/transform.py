@@ -178,6 +178,66 @@ ACTION_BONE_MAPPING = {
 # HUESOS MIXAMO POR GRUPO
 # =============================================================================
 
+# Acciones que mueven al personaje en el espacio: deben ser dueñas del root/hips.
+LOCOMOTION_ACTIONS = {
+    'walk', 'run', 'jog', 'sprint', 'jump', 'hop', 'crouch', 'sneak',
+    'climb', 'roll', 'fall', 'dodge',
+    # Español
+    'caminar', 'correr', 'saltar', 'agacharse', 'rodar',
+}
+
+LOCOMOTION_CONCEPTS = [
+    "walking", "running", "jogging", "sprinting",
+    "moving forward", "stepping", "locomotion",
+    "displacement", "traveling", "running across",
+]
+
+
+def locomotion_score(query: str, model=None) -> float:
+    """0.0 si no hay locomoción detectable; 1.0 si la frase es claramente locomoción.
+
+    Capa 1: keyword exacto contra LOCOMOTION_ACTIONS → 1.0
+    Capa 2: similitud de embedding contra LOCOMOTION_CONCEPTS (si hay BERT)
+    """
+    if not query:
+        return 0.0
+    q = query.lower()
+    for kw in LOCOMOTION_ACTIONS:
+        if kw in q.split() or f' {kw} ' in f' {q} ':
+            return 1.0
+    if model is None:
+        return 0.0
+    try:
+        qe = model.encode(q)
+        ce = model.encode(LOCOMOTION_CONCEPTS)
+        sims = np.dot(ce, qe) / (
+            np.linalg.norm(ce, axis=1) * np.linalg.norm(qe) + 1e-8
+        )
+        return float(np.max(sims))
+    except Exception:
+        return 0.0
+
+
+def assign_overlay_roles(left_query: str, right_query: str, model=None):
+    """Decide qué lado del 'while' es la base (locomoción/root) y cuál el gesto.
+
+    Returns (base_is_left: bool, base_score: float, overlay_score: float).
+    Si ambos lados tienen score parecido, gana el orden natural (right=base).
+    """
+    left_score = locomotion_score(left_query, model)
+    right_score = locomotion_score(right_query, model)
+
+    THRESHOLD = 0.45
+    DIFF = 0.08
+
+    if max(left_score, right_score) < THRESHOLD:
+        return (False, right_score, left_score)
+
+    if left_score > right_score + DIFF:
+        return (True, left_score, right_score)
+    return (False, right_score, left_score)
+
+
 MIXAMO_BONE_GROUPS = {
     BoneGroup.ARMS: [
         'mixamorig:leftshoulder', 'mixamorig:rightshoulder',

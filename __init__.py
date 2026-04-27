@@ -53,7 +53,8 @@ def register():
     bpy.types.Scene.ai_animator_loop_frames = bpy.props.IntProperty(name="Blend Frames", default=15, min=5, max=60)
     bpy.types.Scene.ai_search_results = bpy.props.CollectionProperty(type=AI_SearchResultGroup)
     bpy.types.Scene.ai_transitions = bpy.props.CollectionProperty(type=AI_TransitionProperty)
-    
+    bpy.types.Scene.ai_search_mode = bpy.props.StringProperty(default='SINGLE')
+
     print("✓ AI Animator v3.0 loaded")
 
 def unregister():
@@ -63,6 +64,7 @@ def unregister():
     del bpy.types.Scene.ai_animator_loop_frames
     del bpy.types.Scene.ai_search_results
     del bpy.types.Scene.ai_transitions
+    del bpy.types.Scene.ai_search_mode
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

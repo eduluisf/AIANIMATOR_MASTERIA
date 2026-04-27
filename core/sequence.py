@@ -273,6 +273,43 @@ SEQUENCE_INDICATORS = [
     'start with', 'end with', 'comenzar con', 'terminar con',
 ]
 
+OVERLAY_SEPARATORS = [
+    ' while ', ' mientras ', ' al mismo tiempo que ',
+    ' a la vez que ', ' y al mismo tiempo ',
+    ' at the same time as ',
+]
+
+
+class OverlayDetector:
+    """Detecta si un prompt es un overlay simultáneo (A mientras B)."""
+
+    def __init__(self):
+        self.separators = OVERLAY_SEPARATORS
+
+    def is_overlay(self, prompt: str) -> bool:
+        prompt_lower = prompt.lower()
+        return any(sep in prompt_lower for sep in self.separators)
+
+    def parse_overlay(self, prompt: str):
+        """Returns (overlay_part, base_part) — el primero es la acción que va
+        encima (típicamente brazos), el segundo la base (locomoción)."""
+        prompt_lower = prompt.lower()
+        for sep in self.separators:
+            if sep in prompt_lower:
+                left, right = prompt_lower.split(sep, 1)
+                return left.strip(), right.strip()
+        return prompt_lower, ''
+
+
+_overlay_detector = None
+
+
+def get_overlay_detector() -> OverlayDetector:
+    global _overlay_detector
+    if _overlay_detector is None:
+        _overlay_detector = OverlayDetector()
+    return _overlay_detector
+
 
 class SequenceDetector:
     def __init__(self):
@@ -846,21 +883,30 @@ def get_in_place_processor() -> InPlaceProcessor:
 def process_prompt_for_sequence(prompt: str) -> Tuple[bool, List[str], bool, str]:
     """
     Procesa un prompt detectando secuencias e in-place.
-    
+
     Returns:
         (is_sequence, sequence_parts, is_in_place, cleaned_prompt)
     """
     detector = get_sequence_detector()
     in_place = get_in_place_processor()
-    
+
     # Detectar in-place primero
     is_in_place, cleaned = in_place.detect_in_place(prompt)
-    
+
     # Detectar secuencia
     is_seq = detector.is_sequence(cleaned)
-    
+
     if is_seq:
         parts = detector.parse_sequence(cleaned)
         return (True, parts, is_in_place, cleaned)
     else:
         return (False, [cleaned], is_in_place, cleaned)
+
+
+def process_prompt_for_overlay(prompt: str):
+    """Detect "A while B" → (is_overlay, overlay_part, base_part)."""
+    detector = get_overlay_detector()
+    if not detector.is_overlay(prompt):
+        return (False, '', '')
+    overlay_part, base_part = detector.parse_overlay(prompt)
+    return (True, overlay_part, base_part)

@@ -11,10 +11,13 @@ from .sequence import (
     SequenceDetector,
     SequenceBuilder,
     InPlaceProcessor,
+    OverlayDetector,
     get_sequence_detector,
     get_sequence_builder,
     get_in_place_processor,
-    process_prompt_for_sequence
+    get_overlay_detector,
+    process_prompt_for_sequence,
+    process_prompt_for_overlay,
 )
 from .transform import (
     AnimationTransformer,
@@ -25,6 +28,8 @@ from .transform import (
     BoneGroup,
     get_transformer,
     initialize_transformer,
+    locomotion_score,
+    assign_overlay_roles,
 )
 
 __all__ = [
@@ -39,10 +44,13 @@ __all__ = [
     'SequenceDetector',
     'SequenceBuilder',
     'InPlaceProcessor',
+    'OverlayDetector',
     'get_sequence_detector',
     'get_sequence_builder',
     'get_in_place_processor',
+    'get_overlay_detector',
     'process_prompt_for_sequence',
+    'process_prompt_for_overlay',
     'AnimationTransformer',
     'SemanticModifierDetector',
     'ActionBoneGroupResolver',

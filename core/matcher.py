@@ -22,8 +22,30 @@ class AnimationMatcher:
             self.model = SentenceTransformer(EMBEDDING_MODEL)
             self.semantic_available = True
             print("✓ AI Semantic Model loaded")
-        except:
+        except Exception as e:
             self.semantic_available = False
+            msg = str(e)
+            print(f"⚠ AI Semantic Model NOT loaded ({type(e).__name__}): {e}")
+            print("  → Falling back to basic keyword search.")
+
+            low = msg.lower()
+            if "c10.dll" in low or ("torch" in low and "dll" in low) or "winerror 1114" in low:
+                print()
+                print("  CAUSE: torch's C++ runtime DLLs failed to load.")
+                print("  This is almost always a missing Microsoft Visual C++ Redistributable.")
+                print("  FIX:")
+                print("    1. Download and install the Visual C++ 2015-2022 Redistributable (x64):")
+                print("       https://aka.ms/vs/17/release/vc_redist.x64.exe")
+                print("    2. Restart Windows.")
+                print("    3. Open Blender again — the AI module should activate.")
+            elif "no module named" in low:
+                print()
+                print("  CAUSE: package missing from Blender's Python.")
+                print("  FIX: run Blender as Administrator and click 'Install AI Dependencies'.")
+            else:
+                print("  → If you already clicked 'Install AI Dependencies', the package")
+                print("    likely went to your user AppData folder instead of Blender's")
+                print("    Python. Run Blender as Administrator and reinstall.")
     
     def _load_cache(self):
         if os.path.exists(CACHE_FILE):

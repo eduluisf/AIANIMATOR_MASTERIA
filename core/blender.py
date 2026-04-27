@@ -277,6 +277,64 @@ class MotionBlender:
         logger.log(f"F-curves modified: {curves_modified} ({bone_info})", "SUCCESS")
 
     @staticmethod
+    def overlay_actions(base_action, overlay_action,
+                        overlay_bones: list,
+                        name: str = "Overlay") -> bpy.types.Action:
+        """
+        Combina dos acciones por grupo de huesos: el cuerpo de `base_action`
+        excepto los huesos en `overlay_bones`, que vienen de `overlay_action`.
+
+        Útil para "clap mientras camina" → piernas de walk + brazos de clap.
+        """
+        if not base_action and not overlay_action:
+            return None
+        if not overlay_action or not overlay_bones:
+            return base_action.copy()
+        if not base_action:
+            return overlay_action.copy()
+
+        logger.header("Motion Overlay (per bone group)")
+        logger.log(f"Base:    {base_action.name}", "BLEND")
+        logger.log(f"Overlay: {overlay_action.name} on {len(overlay_bones)} bones", "BLEND")
+
+        result = bpy.data.actions.new(name=f"{name}_overlay")
+        overlay_lower = {b.lower() for b in overlay_bones}
+
+        def belongs_to_overlay(data_path: str) -> bool:
+            dp = data_path.lower()
+            return any(b in dp for b in overlay_lower)
+
+        copied_from_overlay = 0
+        copied_from_base = 0
+
+        for fc in base_action.fcurves:
+            if belongs_to_overlay(fc.data_path):
+                continue
+            new_fc = result.fcurves.new(data_path=fc.data_path, index=fc.array_index)
+            for kp in fc.keyframe_points:
+                new_kp = new_fc.keyframe_points.insert(kp.co[0], kp.co[1])
+                new_kp.interpolation = kp.interpolation
+            copied_from_base += 1
+
+        for fc in overlay_action.fcurves:
+            if not belongs_to_overlay(fc.data_path):
+                continue
+            existing = result.fcurves.find(fc.data_path, index=fc.array_index)
+            if existing:
+                result.fcurves.remove(existing)
+            new_fc = result.fcurves.new(data_path=fc.data_path, index=fc.array_index)
+            for kp in fc.keyframe_points:
+                new_kp = new_fc.keyframe_points.insert(kp.co[0], kp.co[1])
+                new_kp.interpolation = kp.interpolation
+            copied_from_overlay += 1
+
+        logger.section("Overlay Result")
+        logger.log(f"From base:    {copied_from_base} F-curves", "DEBUG")
+        logger.log(f"From overlay: {copied_from_overlay} F-curves", "DEBUG")
+        logger.log(f"Output: {result.name}", "SUCCESS")
+        return result
+
+    @staticmethod
     def blend_multiple(actions_weights: list, name: str = "MultiBlend") -> bpy.types.Action:
         """
         Combina múltiples acciones con sus respectivos pesos.

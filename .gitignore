@@ -1,0 +1,42 @@
+# Claude / agente de desarrollo
+.claude/
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editores / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cache del addon
+embeddings_cache.json
+
+# Blender
+*.blend1
+*.blend2
+
+# Archivos temporales
+*.log
+*.tmp

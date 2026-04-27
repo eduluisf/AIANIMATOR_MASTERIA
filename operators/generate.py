@@ -13,9 +13,16 @@ from ..core import (
     get_sequence_detector,
     get_sequence_builder,
     get_in_place_processor,
-    process_prompt_for_sequence
+    process_prompt_for_sequence,
+    process_prompt_for_overlay,
 )
-from ..core.transform import get_transformer
+from ..core.transform import (
+    get_transformer,
+    MIXAMO_BONE_GROUPS,
+    BoneGroup,
+    ACTION_BONE_MAPPING,
+    assign_overlay_roles,
+)
 
 
 # Instancias globales (se inicializan una vez)
@@ -79,34 +86,41 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
             return {'CANCELLED'}
         
         # =====================================================================
-        # PASO 1: Detectar secuencia e in-place
+        # PASO 1: Detectar overlay, secuencia e in-place
         # =====================================================================
         is_sequence, sequence_parts, is_in_place, cleaned_prompt = process_prompt_for_sequence(prompt)
-        
+        is_overlay, overlay_part, base_part = process_prompt_for_overlay(cleaned_prompt)
+
         print(f"\n{'='*50}")
         print(f" AI ANIMATOR - Processing Request")
         print(f"{'='*50}")
         print(f"  Original prompt: {prompt}")
+        print(f"  Is overlay: {is_overlay}")
+        if is_overlay:
+            print(f"    Overlay part: '{overlay_part}'")
+            print(f"    Base part:    '{base_part}'")
         print(f"  Is sequence: {is_sequence}")
         print(f"  Sequence parts: {sequence_parts}")
         print(f"  Is in-place: {is_in_place}")
         print(f"  Cleaned prompt: {cleaned_prompt}")
-        
+
         parser = get_parser()
         matcher = get_matcher()
         ensure_transformer_initialized()
-        
+
         # =====================================================================
-        # PASO 2: Procesar según tipo (secuencia o blend)
+        # PASO 2: Procesar según tipo (overlay > secuencia > blend)
         # =====================================================================
-        
-        if is_sequence and len(sequence_parts) > 1:
-            # MODO SECUENCIA: encadenar animaciones
+
+        if is_overlay and overlay_part and base_part:
+            final_action = self._process_overlay(
+                overlay_part, base_part, parser, matcher, active_obj, context
+            )
+        elif is_sequence and len(sequence_parts) > 1:
             final_action = self._process_sequence(
                 sequence_parts, parser, matcher, active_obj, context
             )
         else:
-            # MODO BLEND: mezclar animaciones (comportamiento original)
             final_action = self._process_blend(
                 cleaned_prompt, parser, matcher, active_obj, context
             )
@@ -140,6 +154,123 @@ class AI_OT_GenerateAnimation(bpy.types.Operator):
         
         return {'FINISHED'}
     
+    def _resolve_overlay_bones(self, parsed_overlay):
+        """Determina qué huesos del cuerpo cubre la parte de overlay.
+
+        Si las acciones detectadas mapean a un grupo concreto (ARMS/HEAD/SPINE)
+        se usan esos huesos. Si caen en FULL_BODY o no se detecta nada se asume
+        ARMS, que es el caso por defecto cuando alguien dice "X mientras camina".
+        """
+        groups = set()
+        for action in parsed_overlay.get('actions', []):
+            mapped = ACTION_BONE_MAPPING.get(action.lower())
+            if not mapped:
+                continue
+            for bg in mapped:
+                if bg != BoneGroup.FULL_BODY:
+                    groups.add(bg)
+        if not groups:
+            groups.add(BoneGroup.ARMS)
+
+        bones = []
+        for bg in groups:
+            group_bones = MIXAMO_BONE_GROUPS.get(bg) or []
+            bones.extend(group_bones)
+        return list(set(bones)), [bg.value for bg in groups]
+
+    def _resolve_single_action(self, prompt, parser, matcher, target_armature):
+        """Parse + search + import + (optional) blend for a single sub-prompt."""
+        parsed = parser.parse(prompt)
+        self._log_parsed(parsed)
+
+        anims = matcher.find_animations_for_blend(parsed)
+        if not anims:
+            return None, parsed
+
+        imported = self._import_animations(anims, target_armature)
+        if not imported:
+            return None, parsed
+
+        if len(imported) > 1:
+            action = MotionBlender.blend_actions(
+                imported[0][0], imported[1][0],
+                weight1=imported[0][1], weight2=imported[1][1],
+                name=prompt[:15],
+            )
+        else:
+            action = imported[0][0]
+
+        if parsed['speed'] != 1.0:
+            MotionBlender.apply_speed_modifier(action, parsed['speed'])
+        if parsed['intensity'] != 1.0:
+            MotionBlender.apply_intensity_modifier(action, parsed['intensity'])
+
+        return action, parsed
+
+    def _process_overlay(self, overlay_prompt, base_prompt, parser, matcher,
+                         target_armature, context):
+        """Combina dos animaciones por grupo de huesos (A mientras B).
+
+        Detecta cuál lado es la locomoción y le asigna el rol de BASE (dueña
+        del root/hips), sin importar el orden del 'while'. Así
+        'walk while clap' y 'clap while walk' dan el mismo resultado.
+        """
+        print(f"\n{'='*50}")
+        print(f" OVERLAY MODE")
+        print(f"{'='*50}")
+
+        # left = lo que el usuario escribió antes del 'while', right = después.
+        # Por convención inicial: left=overlay, right=base. Pero si BERT detecta
+        # que la locomoción está del lado del overlay, hay que invertir roles.
+        model = matcher.model if matcher.semantic_available else None
+        base_is_left, base_score, ovl_score = assign_overlay_roles(
+            overlay_prompt, base_prompt, model=model,
+        )
+        if base_is_left:
+            print(f"  ↻ Auto-swap: '{overlay_prompt}' is locomotion (score={base_score:.2f}) → it becomes BASE")
+            base_prompt, overlay_prompt = overlay_prompt, base_prompt
+        else:
+            print(f"  Locomotion side: BASE='{base_prompt}' (score={base_score:.2f}) "
+                  f"OVERLAY='{overlay_prompt}' (score={ovl_score:.2f})")
+
+        print(f"\n--- Base (locomotion / root): '{base_prompt}' ---")
+        base_action, _ = self._resolve_single_action(
+            base_prompt, parser, matcher, target_armature
+        )
+        if not base_action:
+            print("  ⚠ No animation for base — falling back to blend")
+            return self._process_blend(
+                f"{overlay_prompt} {base_prompt}", parser, matcher,
+                target_armature, context,
+            )
+
+        print(f"\n--- Overlay (gesture): '{overlay_prompt}' ---")
+        overlay_action, parsed_overlay = self._resolve_single_action(
+            overlay_prompt, parser, matcher, target_armature
+        )
+        if not overlay_action:
+            print("  ⚠ No animation for overlay — using base only")
+            return base_action
+
+        bones, groups = self._resolve_overlay_bones(parsed_overlay)
+        print(f"\n--- Overlay target bone groups: {groups} ({len(bones)} bones) ---")
+        print(f"    Root/hips → kept from BASE ('{base_prompt}')")
+
+        final_action = MotionBlender.overlay_actions(
+            base_action, overlay_action,
+            overlay_bones=bones,
+            name=f"{overlay_prompt[:10]}_while_{base_prompt[:10]}",
+        )
+
+        if context.scene.ai_animator_auto_loop:
+            print("\n--- Making overlay loopable ---")
+            AutoLoop.make_loopable(
+                final_action,
+                blend_frames=context.scene.ai_animator_loop_frames,
+            )
+
+        return final_action
+
     def _process_sequence(self, sequence_parts, parser, matcher, target_armature, context):
         """Procesa una secuencia de animaciones (encadenar)"""
         print(f"\n{'='*50}")
