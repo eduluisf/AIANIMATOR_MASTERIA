@@ -103,15 +103,6 @@ happy walk       → mezcla "walk" (70%) + "happy" (30%)
 sad idle         → mezcla "idle" (70%) + "sad" (30%)
 ```
 
-Los modificadores de velocidad e intensidad se aplican sobre el resultado:
-
-```
-clap fast        → animación de clap a 1.5x velocidad
-jump slow        → animación de jump a 0.6x velocidad
-big wave         → wave con amplitud aumentada
-subtle dance     → dance con amplitud reducida
-```
-
 ---
 
 ## Overlay (acciones simultáneas)
