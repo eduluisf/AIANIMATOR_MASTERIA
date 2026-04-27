@@ -253,16 +253,6 @@ ai_animator/
 - Indicar bien la locomoción: `clap while walk` (no `clap while standing`).
 - Si BERT está activo, también detecta sinónimos como `strolling`, `jogging`, etc.
 
-**Windows: "Defaulting to user installation because normal site-packages is not writeable"**
-- Cerrar Blender → abrirlo como Administrador → Install AI Dependencies de nuevo.
-
-**Windows: "Error loading c10.dll" (torch no carga)**
-- Falta el Microsoft Visual C++ Redistributable. Instalarlo desde:
-  https://aka.ms/vs/17/release/vc_redist.x64.exe → reiniciar Windows.
-
-**Windows: numpy "multiarray" import failed**
-- Hay un numpy "fantasma" en `%APPDATA%\Python\PythonXY\site-packages` que tapa al de Blender. Borrar esa carpeta y reinstalar como Administrador.
-
 ---
 
 ## Requisitos
